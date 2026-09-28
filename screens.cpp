@@ -24,6 +24,7 @@ const uint32_t LETTER_STAGGER_MS = 15, LETTER_DROP_MS = 140, SATS_DELAY_MS = 100
 const int LETTER_DROP_PX = 6;
 
 const int INNER_R_OUT = 72, INNER_R_IN = 69;
+const int MARKER_GAP = 3;   // px of background between the inner ring and the marker's base
 
 float easeOutBack(float p) {
   const float c1 = 1.70158f, c3 = c1 + 1.0f;
@@ -86,10 +87,11 @@ void drawRose(TFT_eSprite &spr, float heading) {
   }
 }
 
-// Triangle fan from the tip to an arc on the inner ring, so the base sits flush with it.
+// Triangle fan from the tip to an arc inside the inner ring. drawCompassScreen then clears a
+// circle just outside the ring, which trims the base to a smooth arc concentric with it.
 void drawMarker(TFT_eSprite &spr, float deg, uint32_t t) {
   const int HALF = 12, STEP = 3;
-  const float baseR = (INNER_R_OUT + INNER_R_IN) / 2.0f;
+  const float baseR = INNER_R_IN;
   float tip = 88 + (t / 300 % 2) * 3;
   int tx, ty, ax, ay, bx, by;
   polar(deg, tip, tx, ty);
@@ -177,8 +179,9 @@ void drawCompassScreen(TFT_eSprite &spr, uint32_t t, float distanceM, float bear
 
   spr.fillSprite(C_BG);
   drawRose(spr, heading);
-  spr.drawSmoothArc(CX, CY, INNER_R_OUT, INNER_R_IN, 0, 360, C_TEXT, C_BG, false);
   drawMarker(spr, bearingDeg - heading, t);
+  spr.fillSmoothCircle(CX, CY, INNER_R_OUT + MARKER_GAP, C_BG);
+  spr.drawSmoothArc(CX, CY, INNER_R_OUT, INNER_R_IN, 0, 360, C_TEXT, C_BG, false);
 
   drawPixelTextCentered(spr, "LOCATED!", CX, CY - 36, 2, C_HIGHLIGHT);
   drawDistance(spr, distanceM, CY - 10);

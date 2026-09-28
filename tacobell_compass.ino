@@ -13,6 +13,7 @@
 #define BUZZER_PIN 15
 #define PIN_SCAN   1   // at boot, report what's wired to each header GPIO
 
+const bool SCREEN_FLIPPED = true;   // display rotated 180 degrees; the heading follows it
 const uint32_t FRAME_MS = 33;
 const uint32_t FIX_TIMEOUT_MS = 5000;
 const uint32_t SEARCH_MS = 1000;
@@ -127,7 +128,7 @@ void setup() {
 
   tft.init();
   digitalWrite(TFT_BL, LOW);   // init() turns the backlight on
-  tft.setRotation(0);
+  tft.setRotation(SCREEN_FLIPPED ? 2 : 0);
   tft.fillScreen(TFT_BLACK);
 
   // 16-bit needs ~115 KB (enable PSRAM); fall back to 8-bit if that fails
@@ -137,6 +138,13 @@ void setup() {
     spr.setColorDepth(8);
     spr.createSprite(240, 240);
   }
+}
+
+// compassHeading() is for the board's top edge; flipped, the top of the screen faces the other way.
+float screenHeading() {
+  float h = compassHeading();
+  if (SCREEN_FLIPPED && !isnan(h)) h = fmodf(h + 180.0f, 360.0f);
+  return h;
 }
 
 void readGps() {
@@ -250,7 +258,7 @@ void loop() {
       if (fix) next = Screen::Compass;
       break;
     case Screen::Compass:
-      drawCompassScreen(spr, t, nearest.distanceM, nearest.bearingDeg, compassHeading());
+      drawCompassScreen(spr, t, nearest.distanceM, nearest.bearingDeg, screenHeading());
       if (!fix) next = Screen::Loading;
       break;
   }
