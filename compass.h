@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-// Tilt-compensated compass: QMC5883L magnetometer (Wire1, GPIO 15/16, powered from VSYS)
+// Tilt-compensated compass: QMC5883P/L or HMC5883L magnetometer (Wire1, SDA 33 / SCL 18, powered from VSYS)
 // plus the board's QMI8658 accelerometer (Wire, GPIO 6/7).
 
 // Starts both I2C buses and loads the saved calibration. False if either sensor is missing.

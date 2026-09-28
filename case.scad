@@ -1,7 +1,11 @@
-// Taco Bell compass, round body + front lobe (v6: v5 + keychain lug)
-// Parts: Waveshare ESP32-S3-Touch-LCD-1.28, ATGM336H GPS (separate antenna),
-//        QMC5883L (GY-271), 103035 LiPo, passive piezo buzzer
+// Taco Bell compass case: FINAL
+// Round body + front lobe. Base + lid, printed in PLA (4 walls, 30-40% infill, no supports).
 //
+// Parts: Waveshare ESP32-S3-Touch-LCD-1.28 (touch), ATGM336H GPS + ceramic antenna,
+//        QMC5883L (GY-271), 103035 LiPo, SS12D10 slide switch, 12 mm shelled piezo disc
+// Hardware: 2x M2x6 self-tapping pan head screws (DIN 7981), foam tape, 2-3 mm foam pad
+//
+// Export: set part = "base" and "lid", render (F6), export STL for each.
 // Top view (+Y = front / pointing direction):
 //   Round body: display on top, battery underneath, USB-C at the back,
 //               piezo buzzer standing on the -X side behind sound holes.
@@ -13,7 +17,7 @@
 // buzzer, and screws are assumed with extra leeway. Update when measured.
 
 /* [What to render] */
-part = "assembly"; // [assembly, base, lid, print_layout]
+part = "print_layout"; // [assembly, base, lid, print_layout]
 show_components = true;
 
 /* [Case] */
@@ -71,9 +75,9 @@ qmc_x = -7.5;
 qmc_y = 29;
 qmc_fence_h = 1.5;
 
-/* [Piezo buzzer (stands upright on the -X side)] */
-buz_d = 12.5;  // assumed 12 + leeway
-buz_t = 4.0;   // assumed 3.5 + leeway
+/* [Piezo buzzer: 12 mm disc in aluminum shell, stands upright on the -X side, sound hole facing the wall] */
+buz_d = 12.3;  // 12 mm shell + leeway (15 mm would hit the rear-left boss)
+buz_t = 3.5;   // assumed shell thickness ~3 mm + leeway; update when measured
 buz_x = -21;
 buz_y = 0;
 buz_hole_d = 1.5;
@@ -101,12 +105,16 @@ key_t      = 5;     // lug thickness (prints flat on the bed; sized for PLA)
 key_reach  = 6;     // hole center distance past the outer wall
 key_hole   = 4.5;   // fits typical split rings and lanyard loops
 
-/* [Optional wall switch hole] */
-switch_hole  = true; // set true once you have the switch; adjust size to its knob/body
-switch_angle = 0;     // +X side: clear of the bosses, buzzer, USB-C, and lobe; free space beside the battery
-switch_w     = 8;
-switch_h     = 4;
-switch_z     = 6;
+/* [Slide switch SS12D10 (back wall, below the USB-C port)] */
+switch_on    = true;
+sw_w         = 12.8;  // body length along the wall (X), per listing
+sw_h         = 6.7;   // body size vertically (Z), per listing
+sw_d         = 6.3;   // body depth into the case, per listing
+sw_pin_stub  = 1.0;   // trim the pins to about 1 mm and solder wires to the stubs
+sw_knob_w    = 3.9;   // knob width along the slide direction, per listing
+sw_knob_h    = 4.0;   // knob size across the slide, per listing
+sw_travel    = 3.0;   // MEASURE: how far the knob slides
+sw_x         = 0;     // centered under the USB-C port
 
 $fn = 96;
 eps = 0.02;   // small overlap so touching parts fuse cleanly (avoids non-manifold warnings)
@@ -135,6 +143,8 @@ echo(str("Battery front edge to QMC edge: ", (qmc_y - qmc_l / 2) - (batt_y + bat
 echo(str("GPS module / compass top to antenna bottom: ", ant_bottom - max(gps_top, qmc_top), " mm"));
 echo(str("Gap between GPS module and compass: ", (gps_x - gps_w / 2) - (qmc_x + qmc_w / 2) - 2 * tol, " mm"));
 echo(str("Lobe inner half-width vs parts: ", lobe_hw - wall, " / ", max(gps_x + gps_w / 2, -(qmc_x - qmc_w / 2), ant_l / 2) + tol));
+echo(str("Switch inner end vs battery back edge: ", sw_face_y + sw_d + sw_pin_stub, " / ", batt_y - batt_l / 2 - tol, " (first must be smaller)"));
+echo(str("Switch top vs USB-C cutout bottom: ", sw_z0 + sw_h, " / ", usbc_z - usbc_h / 2 - 1));
 echo(str("Arm support under PCB edge: ",
          sqrt(pow(board_r, 2) - pow(boss_pts[0][1] - board_y, 2)) - arm_tip, " mm"));
 
@@ -185,6 +195,26 @@ module keychain_lug() {
     }
 }
 
+// switch sits on the floor with its knob face against the back wall
+sw_face_y = -sqrt(pow(inner_r, 2) - pow(sw_w / 2 + tol, 2));   // flat face plane that clears the curved wall
+sw_z0     = floor_t;
+sw_knob_z = sw_z0 + sw_h / 2;
+
+module switch_seat() {
+    // fills the sliver between the curved wall and the switch's flat face
+    translate([sw_x - sw_w / 2 - tol - 1, -case_d / 2 + 0.5, sw_z0 - eps])
+        cube([sw_w + 2 * tol + 2, (sw_face_y) - (-case_d / 2 + 0.5), sw_h + 1]);
+    // side stops
+    for (s = [-1, 1])
+        translate([sw_x + s * (sw_w / 2 + tol) + (s < 0 ? -1 : 0), sw_face_y - 0.01, sw_z0 - eps])
+            cube([1, 3, sw_h * 0.6]);
+}
+
+module switch_slot() {
+    translate([sw_x - (sw_knob_w + sw_travel + 2 * tol) / 2, -case_d / 2 - 1, sw_knob_z - (sw_knob_h + 2 * tol) / 2])
+        cube([sw_knob_w + sw_travel + 2 * tol, (sw_face_y + 0.5) - (-case_d / 2 - 1), sw_knob_h + 2 * tol]);
+}
+
 module battery_keepout() {
     translate([-(batt_w / 2 + tol + 0.3), batt_y - batt_l / 2 - tol - 0.3, -1])
         cube([batt_w + 2 * tol + 0.6, batt_l + 2 * tol + 0.6, batt_top + 0.5 + 1]);
@@ -207,6 +237,7 @@ module base() {
                     flat_fence(gps_x, gps_y, gps_w, gps_l);
                     upright_holder(buz_x, buz_y, buz_t, buz_d, 4, 1.0);
                     flat_fence(qmc_x, qmc_y, qmc_w, qmc_l);
+                    if (switch_on) switch_seat();
                 }
                 union() { inner_volume(base_h); translate([0, 0, -1]) linear_extrude(base_h + 2) outline(-0.01); }
             }
@@ -225,10 +256,8 @@ module base() {
                     rotate([0, 90, 0]) cylinder(d = buz_hole_d, h = wall + 3, $fn = 24);
         // slot for the lid tongue at the lobe tip
         translate([-4.2, lobe_inner - 0.01, base_h - 2.4]) cube([8.4, 1.2, 1.6]);
-        // optional switch
-        if (switch_hole)
-            rotate([0, 0, switch_angle]) translate([inner_r - 1, -switch_w / 2, switch_z - switch_h / 2])
-                cube([wall + 2, switch_w, switch_h]);
+        // slide switch knob slot
+        if (switch_on) switch_slot();
     }
 }
 
@@ -312,6 +341,10 @@ module components() {
         translate([gps_x - gps_w / 2, gps_y - gps_l / 2, floor_t - eps]) cube([gps_w, gps_l, gps_h]);
     color("Purple", 0.7)
         translate([qmc_x - qmc_w / 2, qmc_y - qmc_l / 2, floor_t - eps]) cube([qmc_w, qmc_l, qmc_h]);
+    if (switch_on) color("Gray", 0.8) {
+        translate([sw_x - sw_w / 2, sw_face_y, sw_z0]) cube([sw_w, sw_d, sw_h]);
+        translate([sw_x - sw_knob_w / 2, sw_face_y - 5, sw_knob_z - sw_knob_h / 2]) cube([sw_knob_w, 5, sw_knob_h]);
+    }
     color("Gold", 0.7)
         translate([buz_x, buz_y, floor_t + buz_d / 2]) rotate([0, 90, 0])
             cylinder(d = buz_d, h = buz_t, center = true);

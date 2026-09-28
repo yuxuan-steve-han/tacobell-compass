@@ -2,7 +2,8 @@
 #include <Preferences.h>
 #include <Wire.h>
 
-const int QMC_SDA = 15, QMC_SCL = 16;
+// Header pins 33 and 18; compassBegin() also tries them swapped in case SDA/SCL are crossed.
+int qmcSda = 33, qmcScl = 18;
 const int IMU_SDA = 6, IMU_SCL = 7;
 
 // Magnetic declination, east positive. Boston is about 14 degrees west:
@@ -186,14 +187,21 @@ void saveCal() {
 
 bool compassBegin() {
   // The module's pull-ups hold an idle bus high; low means unpowered or not wired to these pins.
-  pinMode(QMC_SDA, INPUT);
-  pinMode(QMC_SCL, INPUT);
+  pinMode(qmcSda, INPUT);
+  pinMode(qmcScl, INPUT);
   delay(2);
-  int sdaIdle = digitalRead(QMC_SDA), sclIdle = digitalRead(QMC_SCL);
+  int sdaIdle = digitalRead(qmcSda), sclIdle = digitalRead(qmcScl);
 
   Wire.begin(IMU_SDA, IMU_SCL, 400000);
-  Wire1.begin(QMC_SDA, QMC_SCL, 400000);
+  Wire1.begin(qmcSda, qmcScl, 400000);
   bool found = magInit();
+  if (!found) {
+    Wire1.end();
+    std::swap(qmcSda, qmcScl);
+    std::swap(sdaIdle, sclIdle);
+    Wire1.begin(qmcSda, qmcScl, 400000);
+    found = magInit();
+  }
   magOk = found && magReturnsData();
   imuOk = imuInit();
   loadCal();

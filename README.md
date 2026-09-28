@@ -6,7 +6,8 @@ A handheld compass that points to the nearest Taco Bell.
 
 - Waveshare ESP32-S3-Touch-LCD-1.28
 - ATGM336H GPS (TX to GPIO 17)
-- QMC5883L (GY-271) compass (SDA to GPIO 15, SCL to GPIO 16, VCC to VSYS)
+- QMC5883P (GY-271) compass (SDA to GPIO 33, SCL to GPIO 18, VCC to VSYS); QMC5883L and HMC5883L boards also work
+- Buzzer on GPIO 15
 - 103035 LiPo, about 1000 mAh
 
 ## Libraries

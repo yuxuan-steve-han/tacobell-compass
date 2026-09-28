@@ -1,5 +1,6 @@
 #include <TFT_eSPI.h>
 #include <TinyGPSPlus.h>
+#include <Wire.h>
 
 #include "compass.h"
 #include "nearest.h"
@@ -8,7 +9,9 @@
 #define GPS_RX_PIN 17   // <- GPS TX
 #define GPS_TX_PIN -1   // not connected
 #define GPS_BAUD   9600
-#define GPS_DEBUG  1    // echo raw NMEA and a status line to Serial
+#define GPS_DEBUG  0   // echo raw NMEA and a status line to Serial
+#define BUZZER_PIN 15
+#define PIN_SCAN   1   // at boot, report what's wired to each header GPIO
 
 const uint32_t FRAME_MS = 33;
 const uint32_t FIX_TIMEOUT_MS = 5000;
@@ -21,14 +24,66 @@ TFT_eSprite spr = TFT_eSprite(&tft);
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 
+// The board's six header GPIOs. Reports each pin's idle level, whether it toggles (a GPS TX
+// sends a burst every second), and any I2C device answering between two idle-high pins.
+void scanHeaderPins() {
+  const int pins[] = {15, 16, 17, 18, 21, 33};
+  const int n = sizeof(pins) / sizeof(pins[0]);
+  int level[n], last[n], edges[n] = {0};
+
+  for (int i = 0; i < n; i++) pinMode(pins[i], INPUT);
+  delay(2);
+  for (int i = 0; i < n; i++) level[i] = last[i] = digitalRead(pins[i]);
+  for (uint32_t start = millis(); millis() - start < 1100;) {
+    for (int i = 0; i < n; i++) {
+      int v = digitalRead(pins[i]);
+      if (v != last[i]) {
+        edges[i]++;
+        last[i] = v;
+      }
+    }
+  }
+
+  Serial.print("[pins]");
+  for (int i = 0; i < n; i++)
+    Serial.printf(" %d=%s", pins[i], edges[i] > 20 ? "toggling(GPS TX?)" : level[i] ? "high" : "low");
+  Serial.println();
+
+  // Only idle-high pairs: a low SCL makes every probe wait for the bus timeout.
+  int devices = 0;
+  for (int s = 0; s < n; s++) {
+    for (int c = 0; c < n; c++) {
+      if (s == c || !level[s] || !level[c] || edges[s] > 20 || edges[c] > 20) continue;
+      Wire1.begin(pins[s], pins[c], 100000);
+      for (uint8_t a = 0x08; a < 0x78; a++) {
+        Wire1.beginTransmission(a);
+        if (Wire1.endTransmission() == 0) {
+          Serial.printf("[pins] I2C device 0x%02X at SDA=%d SCL=%d\n", a, pins[s], pins[c]);
+          devices++;
+        }
+      }
+      Wire1.end();
+    }
+  }
+  if (!devices) Serial.println("[pins] no I2C device on any header pin pair");
+}
+
 void setup() {
+  // Panel RAM powers up as noise; keep the backlight off until the first frame is drawn
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, LOW);
+
   Serial.begin(115200);
   while (!Serial && millis() < 2000) {}   // USB serial reconnects after reset; don't lose boot messages
+  if (PIN_SCAN) scanHeaderPins();   // before the GPS UART and compass claim their pins
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
   gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   compassBegin();
   Serial.printf("[compass] %s\n", compassStatus());
 
   tft.init();
+  digitalWrite(TFT_BL, LOW);   // init() turns the backlight on
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
 
@@ -52,13 +107,14 @@ void readGps() {
 // chars=0: nothing on the RX pin. Many failed checksums: wrong baud rate.
 void printStatus(uint32_t now) {
   static uint32_t last = 0;
-  if (!GPS_DEBUG || now - last < 5000) return;
+  if (now - last < 5000) return;
   last = now;
-  Serial.printf("\n[gps] chars=%lu ok=%lu failed=%lu sats=%d fix=%d\n",
-                (unsigned long)gps.charsProcessed(), (unsigned long)gps.passedChecksum(),
-                (unsigned long)gps.failedChecksum(),
-                gps.satellites.isValid() ? (int)gps.satellites.value() : -1,
-                gps.location.isValid() ? 1 : 0);
+  if (GPS_DEBUG)
+    Serial.printf("\n[gps] chars=%lu ok=%lu failed=%lu sats=%d fix=%d\n",
+                  (unsigned long)gps.charsProcessed(), (unsigned long)gps.passedChecksum(),
+                  (unsigned long)gps.failedChecksum(),
+                  gps.satellites.isValid() ? (int)gps.satellites.value() : -1,
+                  gps.location.isValid() ? 1 : 0);
   Serial.printf("[compass] %s\n", compassStatus());
 }
 
@@ -120,6 +176,12 @@ void loop() {
       drawCompassScreen(spr, t, nearest.distanceM, nearest.bearingDeg, compassHeading());
       if (!fix) next = Screen::Loading;
       break;
+  }
+
+  static bool backlightOn = false;
+  if (!backlightOn) {
+    digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
+    backlightOn = true;
   }
 
   if (next != screen) {
