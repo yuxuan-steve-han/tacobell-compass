@@ -13,7 +13,7 @@
 // buzzer, and screws are assumed with extra leeway. Update when measured.
 
 /* [What to render] */
-part = "print_layout"; // [assembly, base, lid, print_layout]
+part = "assembly"; // [assembly, base, lid, print_layout]
 show_components = true;
 
 /* [Case] */
@@ -102,8 +102,8 @@ key_reach  = 6;     // hole center distance past the outer wall
 key_hole   = 4.5;   // fits typical split rings and lanyard loops
 
 /* [Optional wall switch hole] */
-switch_hole  = false;
-switch_angle = 200;
+switch_hole  = true; // set true once you have the switch; adjust size to its knob/body
+switch_angle = 0;     // +X side: clear of the bosses, buzzer, USB-C, and lobe; free space beside the battery
 switch_w     = 8;
 switch_h     = 4;
 switch_z     = 6;
