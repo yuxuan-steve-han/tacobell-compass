@@ -24,4 +24,4 @@ Open `tacobell_compass.ino`, select the ESP32-S3 board, enable PSRAM, and upload
 
 To calibrate the compass, send `c` in the Serial Monitor (115200 baud) and rotate the device in every direction for 20 seconds.
 
-`case.scad` / `case.stl` is the enclosure. `tools/` regenerates the logo and font headers.
+`case.scad` / `case.stl` is the enclosure. `tools/` regenerates the logo, font and Taco Bell location headers (`python3 tools/make_tacobell.py tacobell.h` pulls the latest from OpenStreetMap; add missing places to `EXTRA` in that script).

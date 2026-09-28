@@ -9,7 +9,7 @@
 #define GPS_RX_PIN 17   // <- GPS TX
 #define GPS_TX_PIN -1   // not connected
 #define GPS_BAUD   9600
-#define GPS_DEBUG  0   // echo raw NMEA and a status line to Serial
+#define GPS_DEBUG  0   // echo raw NMEA and a byte/checksum count line to Serial
 #define BUZZER_PIN 15
 #define PIN_SCAN   1   // at boot, report what's wired to each header GPIO
 
@@ -23,6 +23,49 @@ TFT_eSPI tft;
 TFT_eSprite spr = TFT_eSprite(&tft);
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
+// Signal strength (SNR, dB; 0 = not heard) of each satellite in view, from the GSV sentences.
+// gps.satellites only counts those used in a fix, which stays 0 until the first one.
+const int MAX_SATS = 32;
+const int GOOD_SNR_DB = 25;   // roughly what a fix needs, from at least 4 satellites
+struct SatList {
+  int snr[MAX_SATS];
+  int n = 0;
+};
+SatList satsShown[2], satsBuilding[2];   // [0] = GPS, [1] = BeiDou
+
+// Fields: $xxGSV,total msgs,msg num,in view,{prn,elevation,azimuth,snr} x up to 4[,signal id]
+void parseGsv(char *line) {
+  int sys = !strncmp(line, "$GPGSV", 6) ? 0
+          : !strncmp(line, "$BDGSV", 6) || !strncmp(line, "$GBGSV", 6) ? 1 : -1;
+  if (sys < 0) return;
+  char *star = strchr(line, '*');
+  if (star) *star = 0;
+  char *f[24];
+  int nf = 0;
+  for (char *p = line; p && nf < 24;) {
+    f[nf++] = p;
+    p = strchr(p, ',');
+    if (p) *p++ = 0;
+  }
+  if (nf < 4) return;
+  int total = atoi(f[1]), num = atoi(f[2]);
+  SatList &b = satsBuilding[sys];
+  if (num == 1) b.n = 0;
+  for (int i = 4; i + 3 < nf && b.n < MAX_SATS; i += 4) b.snr[b.n++] = atoi(f[i + 3]);
+  if (num == total) satsShown[sys] = b;
+}
+
+int satellitesInView() {
+  return satsShown[0].n + satsShown[1].n;
+}
+
+// Satellites whose signal is at least minSnr dB.
+int satellitesAbove(int minSnr) {
+  int count = 0;
+  for (const SatList &s : satsShown)
+    for (int i = 0; i < s.n; i++) count += s.snr[i] >= minSnr;
+  return count;
+}
 
 // The board's six header GPIOs. Reports each pin's idle level, whether it toggles (a GPS TX
 // sends a burst every second), and any I2C device answering between two idle-high pins.
@@ -101,11 +144,45 @@ void readGps() {
     char ch = gpsSerial.read();
     if (GPS_DEBUG) Serial.write(ch);
     gps.encode(ch);
+
+    static char line[100];
+    static int len = 0;
+    if (ch == '$') len = 0;
+    if (ch == '\r' || ch == '\n') {
+      line[len] = 0;
+      if (len) parseGsv(line);
+      len = 0;
+    } else if (len < (int)sizeof(line) - 1) {
+      line[len++] = ch;
+    }
   }
+}
+
+void printSnrs(const char *name, const SatList &s) {
+  Serial.printf(" %s:", name);
+  if (!s.n) Serial.print(" -");
+  for (int i = 0; i < s.n; i++) Serial.printf(" %d", s.snr[i]);
 }
 
 // chars=0: nothing on the RX pin. Many failed checksums: wrong baud rate.
 void printStatus(uint32_t now) {
+  static uint32_t lastGps = 0;
+  static bool hadFix = false;
+  if (now - lastGps >= 1000) {
+    lastGps = now;
+    int heard = satellitesAbove(1), good = satellitesAbove(GOOD_SNR_DB);
+    bool fix = gps.location.isValid();
+    Serial.printf("[gps] in view: %d, heard: %d, good (>=%d dB): %d/4, used: %d, fix: %s, %lu s |",
+                  satellitesInView(), heard, GOOD_SNR_DB, good,
+                  gps.satellites.isValid() ? (int)gps.satellites.value() : 0, fix ? "yes" : "no",
+                  (unsigned long)(now / 1000));
+    printSnrs("GPS dB", satsShown[0]);
+    printSnrs("BeiDou dB", satsShown[1]);
+    Serial.println();
+    if (fix && !hadFix) Serial.printf("[gps] first fix after %lu s\n", (unsigned long)(now / 1000));
+    hadFix = fix;
+  }
+
   static uint32_t last = 0;
   if (now - last < 5000) return;
   last = now;
@@ -169,7 +246,7 @@ void loop() {
       if (drawIntroScreen(spr, t)) next = Screen::Loading;
       break;
     case Screen::Loading:
-      drawLoadingScreen(spr, t, gps.satellites.isValid() ? gps.satellites.value() : 0);
+      drawLoadingScreen(spr, t, satellitesAbove(GOOD_SNR_DB));
       if (fix) next = Screen::Compass;
       break;
     case Screen::Compass:
