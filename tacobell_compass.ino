@@ -23,8 +23,10 @@ HardwareSerial gpsSerial(1);
 
 void setup() {
   Serial.begin(115200);
+  while (!Serial && millis() < 2000) {}   // USB serial reconnects after reset; don't lose boot messages
   gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-  if (!compassBegin()) Serial.println("No compass found, drawing north-up");
+  compassBegin();
+  Serial.printf("[compass] %s\n", compassStatus());
 
   tft.init();
   tft.setRotation(0);
@@ -48,7 +50,7 @@ void readGps() {
 }
 
 // chars=0: nothing on the RX pin. Many failed checksums: wrong baud rate.
-void printGpsStatus(uint32_t now) {
+void printStatus(uint32_t now) {
   static uint32_t last = 0;
   if (!GPS_DEBUG || now - last < 5000) return;
   last = now;
@@ -57,12 +59,35 @@ void printGpsStatus(uint32_t now) {
                 (unsigned long)gps.failedChecksum(),
                 gps.satellites.isValid() ? (int)gps.satellites.value() : -1,
                 gps.location.isValid() ? 1 : 0);
+  Serial.printf("[compass] %s\n", compassStatus());
+}
+
+// Serial Monitor commands: c = calibrate compass (20 s, blocks), d = toggle compass debug output
+bool compassDebug = false;
+
+void handleSerial() {
+  if (!Serial.available()) return;
+  char ch = Serial.read();
+  if (ch == 'c') {
+    Serial.println("Calibrating for 20 s: rotate slowly in every direction (figure-eights, flips)...");
+    compassCalibrate(20000);
+    Serial.println("Saved.");
+  } else if (ch == 'd') {
+    compassDebug = !compassDebug;
+  }
 }
 
 void loop() {
   readGps();
+  handleSerial();
   uint32_t now = millis();
-  printGpsStatus(now);
+  printStatus(now);
+
+  static uint32_t lastDebug = 0;
+  if (compassDebug && now - lastDebug >= 200) {
+    lastDebug = now;
+    compassDebugPrint();
+  }
 
   bool fix = gps.location.isValid() && gps.location.age() < FIX_TIMEOUT_MS;
 
@@ -76,6 +101,7 @@ void loop() {
   static uint32_t lastFrame = 0;
   if (now - lastFrame < FRAME_MS) return;
   lastFrame = now;
+  compassUpdate();
 
   static Screen screen = Screen::Intro;
   static uint32_t screenStart = now;
